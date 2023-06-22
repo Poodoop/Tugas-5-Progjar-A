@@ -8,11 +8,12 @@ import logging
 class BackendList:
 	def __init__(self):
 		self.servers=[]
-		self.servers.append(('127.0.0.1',8000))
-		self.servers.append(('127.0.0.1',8001))
-		self.servers.append(('127.0.0.1',8002))
-#		self.servers.append(('127.0.0.1',9005))
+        self.servers.append(('127.0.0.1', 8001))
+        self.servers.append(('127.0.0.1', 8002))
+        self.servers.append(('127.0.0.1', 8003))
+        self.servers.append(('127.0.0.1', 8004))
 		self.current=0
+
 	def getserver(self):
 		s = self.servers[self.current]
 		self.current=self.current+1
@@ -26,29 +27,46 @@ class Backend(asyncore.dispatcher_with_send):
 		asyncore.dispatcher_with_send.__init__(self)
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.connect(targetaddress)
-		self.connection = self
+        self.client_socket = None
 
-	def handle_read(self):
-		try:
-			self.client_socket.send(self.recv(32))
-		except:
-			pass
-	def handle_close(self):
-		try:
-			self.close()
-			self.client_socket.close()
-		except:
-			pass
+    def handle_read(self):
+        if self.client_socket:
+            try:
+                data = self.recv(8192)
+                if data:
+                    self.client_socket.send(data)
+            except Exception as e:
+                logging.warning("Backend handle_read error: {}".format(e))
+                self.close()
+
+    def handle_close(self):
+        try:
+            self.close()
+            if self.client_socket:
+                self.client_socket.close()
+        except Exception as e:
+            logging.warning("Backend handle_close error: {}".format(e))
 
 
 class ProcessTheClient(asyncore.dispatcher):
-	def handle_read(self):
-		data = self.recv(32)
-		if data:
-			self.backend.client_socket = self
-			self.backend.send(data)
-	def handle_close(self):
-		self.close()
+    def __init__(self, sock, backend):
+        asyncore.dispatcher.__init__(self, sock)
+        self.backend = backend
+        self.backend.client_socket = self
+
+    def handle_read(self):
+        try:
+            data = self.recv(8192)
+            if data:
+                self.backend.send(data)
+        except Exception as e:
+            logging.warning("ProcessTheClient handle_read error: {}".format(e))
+            self.close()
+
+    def handle_close(self):
+        self.close()
+        if self.backend:
+            self.backend.close()
 
 class Server(asyncore.dispatcher):
 	def __init__(self,portnumber):
@@ -72,9 +90,7 @@ class Server(asyncore.dispatcher):
 			backend = Backend(bs)
 
 			#mendapatkan handler dan socket dari client
-			handler = ProcessTheClient(sock)
-			handler.backend = backend
-
+			handler = ProcessTheClient(sock, backend)
 
 def main():
 	portnumber=55555
@@ -84,6 +100,7 @@ def main():
 		pass
 	svr = Server(portnumber)
 	asyncore.loop()
+
 
 if __name__=="__main__":
 	main()
